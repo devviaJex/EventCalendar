@@ -65,23 +65,39 @@ async def db_fetchall(query: str, params: tuple = ()):
 
 async def ensure_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    await db_exec(
-        """
+    # Base tables
+    await db_exec("""
         CREATE TABLE IF NOT EXISTS events_map (
             discord_message_id INTEGER PRIMARY KEY,
             event_id TEXT NOT NULL,
-            channel_id INTEGER NOT NULL
+            channel_id INTEGER NOT NULL,
+            thread_id INTEGER
         )
-        """
-    )
-    await db_exec(
-        """
+    """)
+    await db_exec("""
         CREATE TABLE IF NOT EXISTS rsvps (
             event_id TEXT NOT NULL,
             user_id INTEGER NOT NULL,
             status TEXT NOT NULL,
             PRIMARY KEY (event_id, user_id)
         )
+    """)
+    await db_exec("""
+        CREATE TABLE IF NOT EXISTS event_tags (
+            event_id TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (event_id, tag)
+        )
+    """)
+
+    # If events_map already existed from the first version, add thread_id if missing
+    try:
+        cols = [r[1] for r in await db_fetchall("PRAGMA table_info(events_map)")]
+        if "thread_id" not in cols:
+            await db_exec("ALTER TABLE events_map ADD COLUMN thread_id INTEGER")
+    except Exception:
+        pass
+
         """
     )
 
