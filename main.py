@@ -113,6 +113,39 @@ def display_dt(dt_iso: str | None) -> str:
     return local.strftime("%a, %b %d at %I:%M %p %Z")
 
 # ---------------------------
+# Interest tags, modes, and colors
+# ---------------------------
+INTEREST_TAGS = [
+    "In person Meet up", "Games", "Online", "Yard sale",
+    "Family Friendly", "Pop up market", "Last Minute meetup",
+    "Fitness", "21+"
+]
+
+MODE_CHOICES = ["In person Meet up", "Online"]
+
+# Map topic tags to Google Calendar colorId (string IDs from /event_colors)
+TAG_TO_COLOR = {
+    "Games": "3",
+    "Yard sale": "10",
+    "Pop up market": "1",
+    "Fitness": "2",
+    "Family Friendly": "2",
+    "21+": "11",
+    "Last Minute meetup": "4",
+}
+
+def norm_tag(t: str) -> str:
+    return t.strip()
+
+def pick_color_id(tags: list[str]) -> str | None:
+    for t in tags:
+        t = norm_tag(t)
+        if t in TAG_TO_COLOR:
+            return TAG_TO_COLOR[t]
+    return None
+
+
+# ---------------------------
 # RSVP buttons
 # ---------------------------
 class RSVPView(discord.ui.View):
