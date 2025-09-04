@@ -24,27 +24,29 @@ TZ = pytz.timezone(TZ_NAME)
 CAL_ID = os.getenv("CALENDAR_ID")
 KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "creds/service-account.json")
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", "0"))  # optional, restrict posting
+DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 
 if not CAL_ID:
     raise RuntimeError("CALENDAR_ID env var is required.")
 
 if not os.path.exists(KEY_PATH):
-    raise RuntimeError(f"Service account key not found at {KEY_PATH}. Set GOOGLE_APPLICATION_CREDENTIALS or upload the file.")
+    raise RuntimeError(
+        f"Service account key not found at {KEY_PATH}. Set GOOGLE_APPLICATION_CREDENTIALS or upload the file."
+    )
 
 creds = Credentials.from_service_account_file(
     KEY_PATH, scopes=["https://www.googleapis.com/auth/calendar"]
 )
 _gcal = build("calendar", "v3", credentials=creds)
 
-DB_PATH = os.getenv("DB_PATH", "data/bot.db")
-
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------------------
-# Utilities
+# DB helpers
 # ---------------------------
 async def db_exec(query: str, params: tuple = ()):  # simple helper
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(query, params)
         await db.commit()
@@ -66,31 +68,36 @@ async def db_fetchall(query: str, params: tuple = ()):
 async def ensure_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     # Base tables
-    await db_exec("""
+    await db_exec(
+        """
         CREATE TABLE IF NOT EXISTS events_map (
             discord_message_id INTEGER PRIMARY KEY,
             event_id TEXT NOT NULL,
             channel_id INTEGER NOT NULL,
             thread_id INTEGER
         )
-    """)
-    await db_exec("""
+        """
+    )
+    await db_exec(
+        """
         CREATE TABLE IF NOT EXISTS rsvps (
             event_id TEXT NOT NULL,
             user_id INTEGER NOT NULL,
             status TEXT NOT NULL,
             PRIMARY KEY (event_id, user_id)
         )
-    """)
-    await db_exec("""
+        """
+    )
+    await db_exec(
+        """
         CREATE TABLE IF NOT EXISTS event_tags (
             event_id TEXT NOT NULL,
             tag TEXT NOT NULL,
             PRIMARY KEY (event_id, tag)
         )
-    """)
-
-    # If events_map already existed from the first version, add thread_id if missing
+        """
+    )
+    # Ensure thread_id exists if table was created earlier without it
     try:
         cols = [r[1] for r in await db_fetchall("PRAGMA table_info(events_map)")]
         if "thread_id" not in cols:
@@ -98,21 +105,29 @@ async def ensure_db():
     except Exception:
         pass
 
-        """
-    )
-
 # Google helpers run off-thread to avoid blocking the event loop
 async def gcal_insert_event(body: dict):
-    return await asyncio.to_thread(lambda: _gcal.events().insert(calendarId=CAL_ID, body=body).execute())
+    return await asyncio.to_thread(
+        lambda: _gcal.events().insert(calendarId=CAL_ID, body=body).execute()
+    )
 
 async def gcal_list(time_min_iso: str, time_max_iso: str, max_items: int = 25):
     return await asyncio.to_thread(
         lambda: _gcal.events()
-        .list(calendarId=CAL_ID, timeMin=time_min_iso, timeMax=time_max_iso, singleEvents=True, orderBy="startTime", maxResults=max_items)
+        .list(
+            calendarId=CAL_ID,
+            timeMin=time_min_iso,
+            timeMax=time_max_iso,
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=max_items,
+        )
         .execute()
     )
 
+# ---------------------------
 # Time helpers
+# ---------------------------
 
 def to_local_iso(dt: datetime) -> str:
     if dt.tzinfo is None:
@@ -120,6 +135,7 @@ def to_local_iso(dt: datetime) -> str:
     else:
         dt = dt.astimezone(TZ)
     return dt.isoformat()
+
 
 def display_dt(dt_iso: str | None) -> str:
     if not dt_iso:
@@ -132,9 +148,15 @@ def display_dt(dt_iso: str | None) -> str:
 # Interest tags, modes, and colors
 # ---------------------------
 INTEREST_TAGS = [
-    "In person Meet up", "Games", "Online", "Yard sale",
-    "Family Friendly", "Pop up market", "Last Minute meetup",
-    "Fitness", "21+"
+    "In person Meet up",
+    "Games",
+    "Online",
+    "Yard sale",
+    "Family Friendly",
+    "Pop up market",
+    "Last Minute meetup",
+    "Fitness",
+    "21+",
 ]
 
 MODE_CHOICES = ["In person Meet up", "Online"]
@@ -153,6 +175,7 @@ TAG_TO_COLOR = {
 def norm_tag(t: str) -> str:
     return t.strip()
 
+
 def pick_color_id(tags: list[str]) -> str | None:
     for t in tags:
         t = norm_tag(t)
@@ -160,9 +183,8 @@ def pick_color_id(tags: list[str]) -> str | None:
             return TAG_TO_COLOR[t]
     return None
 
-
 # ---------------------------
-# RSVP buttons
+# RSVP buttons (auto-add to thread)
 # ---------------------------
 class RSVPView(discord.ui.View):
     def __init__(self, event_id: str):
@@ -174,16 +196,21 @@ class RSVPView(discord.ui.View):
             "INSERT OR REPLACE INTO rsvps(event_id, user_id, status) VALUES(?,?,?)",
             (self.event_id, interaction.user.id, status),
         )
-        # Try to add the user to the event's private thread
+        # Auto-add RSVP users to the event's private thread (if exists)
         try:
-            row = await db_fetchone("SELECT thread_id FROM events_map WHERE event_id=?", (self.event_id,))
+            row = await db_fetchone(
+                "SELECT thread_id FROM events_map WHERE event_id=?",
+                (self.event_id,),
+            )
             if row and row[0]:
                 thread = interaction.client.get_channel(row[0]) or await interaction.client.fetch_channel(row[0])
                 await thread.add_user(interaction.user)
         except Exception:
             pass
 
-        await interaction.response.send_message(f"Your RSVP is **{status}**", ephemeral=True)
+        await interaction.response.send_message(
+            f"Your RSVP is **{status}**", ephemeral=True
+        )
 
     @discord.ui.button(label="Going", style=discord.ButtonStyle.success, emoji="✅")
     async def going(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -197,9 +224,8 @@ class RSVPView(discord.ui.View):
     async def notgoing(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._set_status(interaction, "not going")
 
-
 # ---------------------------
-# Embeds
+# Embeds and thread creation
 # ---------------------------
 async def post_event_embed(channel: discord.TextChannel, event: dict):
     start_iso = event["start"].get("dateTime") or event["start"].get("date")
@@ -220,16 +246,24 @@ async def post_event_embed(channel: discord.TextChannel, event: dict):
     view = RSVPView(event_id=event["id"])
     msg = await channel.send(embed=embed, view=view)
 
-    await db_exec(
-        "INSERT OR REPLACE INTO events_map(discord_message_id, event_id, channel_id) VALUES(?,?,?)",
-        (msg.id, event["id"], channel.id),
-    )
+    # Create a private thread for event discussion
+    thread = None
     try:
-        thread = await msg.create_thread(name=f"{title} chat")
+        thread = await msg.create_thread(
+            name=f"{title} chat",
+            type=discord.ChannelType.private_thread,
+            auto_archive_duration=10080,  # 7 days
+        )
         if desc:
             await thread.send("Event details:\n" + desc)
     except Exception:
         pass
+
+    await db_exec(
+        "INSERT OR REPLACE INTO events_map(discord_message_id, event_id, channel_id, thread_id) VALUES(?,?,?,?)",
+        (msg.id, event["id"], channel.id, thread.id if thread else None),
+    )
+
     return msg
 
 # ---------------------------
@@ -242,7 +276,12 @@ async def post_event_embed(channel: discord.TextChannel, event: dict):
     start_time="Start time, HH:MM 24h (local)",
     duration_minutes="Duration in minutes",
     location="Where is it?",
-    details="Description"
+    details="Description",
+    tags="Comma-separated topic tags (e.g., Games, Fitness)",
+    mode="Event mode"
+)
+@app_commands.choices(
+    mode=[app_commands.Choice(name=m, value=m) for m in MODE_CHOICES]
 )
 async def event_create(
     interaction: discord.Interaction,
@@ -252,17 +291,30 @@ async def event_create(
     duration_minutes: app_commands.Range[int, 5, 10080] = 60,
     location: str = "",
     details: str = "",
+    tags: str = "",
+    mode: app_commands.Choice[str] | None = None,
 ):
     if EVENT_CHANNEL_ID and interaction.channel_id != EVENT_CHANNEL_ID:
-        return await interaction.response.send_message("Please use the designated events channel.", ephemeral=True)
+        return await interaction.response.send_message(
+            "Please use the designated events channel.", ephemeral=True
+        )
 
-    # Parse local time
     try:
-        start_local = datetime.strptime(f"{date} {start_time}", "%Y-%m-%d %H:%M")
-        start_local = TZ.localize(start_local)
+        start_local = TZ.localize(
+            datetime.strptime(f"{date} {start_time}", "%Y-%m-%d %H:%M")
+        )
         end_local = start_local + timedelta(minutes=duration_minutes)
     except Exception as e:
-        return await interaction.response.send_message(f"Time parse error: {e}", ephemeral=True)
+        return await interaction.response.send_message(
+            f"Time parse error: {e}", ephemeral=True
+        )
+
+    tag_list = [norm_tag(t) for t in tags.split(",") if t.strip()] if tags else []
+    # include mode as a tag for role pinging
+    if mode and mode.value not in tag_list:
+        tag_list.insert(0, mode.value)
+
+    color_id = pick_color_id(tag_list)
 
     body = {
         "summary": title,
@@ -271,18 +323,53 @@ async def event_create(
         "start": {"dateTime": start_local.isoformat()},
         "end": {"dateTime": end_local.isoformat()},
     }
+    if color_id:
+        body["colorId"] = color_id
 
     await interaction.response.send_message("Creating event...", ephemeral=True)
     try:
         event = await gcal_insert_event(body)
+
+        # persist tags
+        for t in tag_list:
+            await db_exec(
+                "INSERT OR REPLACE INTO event_tags(event_id, tag) VALUES(?,?)",
+                (event["id"], t),
+            )
+
+        # embed + private thread
         await post_event_embed(interaction.channel, event)
+
+        # ping one mode role (if any) + first matching topic role (to avoid spam)
+        roles_to_ping = []
+        if mode:
+            r = discord.utils.get(interaction.guild.roles, name=mode.value)
+            if r:
+                roles_to_ping.append(r)
+        for t in tag_list:
+            if mode and t == mode.value:
+                continue
+            r = discord.utils.get(interaction.guild.roles, name=t)
+            if r:
+                roles_to_ping.append(r)
+                break
+
+        if roles_to_ping:
+            allowed = discord.AllowedMentions(roles=True)
+            await interaction.channel.send(
+                "New event for " + " ".join(r.mention for r in roles_to_ping),
+                allowed_mentions=allowed,
+            )
+
         await interaction.followup.send(f"Created **{title}**", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"Calendar error: {e}", ephemeral=True)
 
 @bot.tree.command(description="List upcoming events from the shared calendar")
 @app_commands.describe(days="How many days ahead to list")
-async def event_list(interaction: discord.Interaction, days: app_commands.Range[int, 1, 60] = 14):
+async def event_list(
+    interaction: discord.Interaction, days: app_commands.Range[int, 1, 60] = 14
+):
     now = datetime.now(TZ)
     time_min = now.isoformat()
     time_max = (now + timedelta(days=days)).isoformat()
@@ -291,7 +378,9 @@ async def event_list(interaction: discord.Interaction, days: app_commands.Range[
         resp = await gcal_list(time_min, time_max, max_items=25)
         items = resp.get("items", [])
         if not items:
-            return await interaction.response.send_message("No upcoming events.", ephemeral=True)
+            return await interaction.response.send_message(
+                "No upcoming events.", ephemeral=True
+            )
 
         lines = []
         for ev in items:
@@ -312,7 +401,79 @@ async def whereami(interaction: discord.Interaction):
         platform = "Replit"
     elif os.environ.get("RAILWAY_PROJECT_ID"):
         platform = "Railway"
-    await interaction.response.send_message(f"Running on **{platform}**.", ephemeral=True)
+    await interaction.response.send_message(
+        f"Running on **{platform}**.", ephemeral=True
+    )
+
+# ---------------------------
+# Subscription management & utilities
+# ---------------------------
+@bot.tree.command(description="Subscribe to an event interest tag")
+@app_commands.describe(tag="Pick a tag to subscribe to")
+@app_commands.choices(tag=[app_commands.Choice(name=t, value=t) for t in INTEREST_TAGS])
+async def notify_subscribe(
+    interaction: discord.Interaction, tag: app_commands.Choice[str]
+):
+    role = discord.utils.get(interaction.guild.roles, name=tag.value)
+    if not role:
+        try:
+            role = await interaction.guild.create_role(
+                name=tag.value, mentionable=False, reason="Interest role"
+            )
+        except Exception as e:
+            return await interaction.response.send_message(
+                f"Could not create role: {e}", ephemeral=True
+            )
+    try:
+        await interaction.user.add_roles(role, reason="Interest subscribe")
+        await interaction.response.send_message(
+            f"Subscribed to **{tag.value}**", ephemeral=True
+        )
+    except Exception as e:
+        await interaction.response.send_message(
+            f"Could not add role: {e}", ephemeral=True
+        )
+
+
+@bot.tree.command(description="Unsubscribe from an event interest tag")
+@app_commands.describe(tag="Pick a tag to leave")
+@app_commands.choices(tag=[app_commands.Choice(name=t, value=t) for t in INTEREST_TAGS])
+async def notify_unsubscribe(
+    interaction: discord.Interaction, tag: app_commands.Choice[str]
+):
+    role = discord.utils.get(interaction.guild.roles, name=tag.value)
+    if not role:
+        return await interaction.response.send_message(
+            "You are not subscribed.", ephemeral=True
+        )
+    try:
+        await interaction.user.remove_roles(role, reason="Interest unsubscribe")
+        await interaction.response.send_message(
+            f"Unsubscribed from **{tag.value}**", ephemeral=True
+        )
+    except Exception as e:
+        await interaction.response.send_message(
+            f"Could not remove role: {e}", ephemeral=True
+        )
+
+
+@bot.tree.command(description="Show this channel's ID")
+async def channelid(interaction: discord.Interaction):
+    ch = interaction.channel
+    gid = interaction.guild_id
+    await interaction.response.send_message(
+        f"Guild ID: `{gid}`\nChannel ID: `{ch.id}`\nName: {ch.name}",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(description="Show Google Calendar event colors")
+async def event_colors(interaction: discord.Interaction):
+    pal = await asyncio.to_thread(lambda: _gcal.colors().get().execute())
+    lines = []
+    for cid, spec in pal.get("event", {}).items():
+        lines.append(f"{cid}: {spec['background']} on {spec['foreground']}")
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 # ---------------------------
 # Reminders loop (optional, simple)
@@ -324,12 +485,12 @@ async def reminders():
         soon = now + timedelta(minutes=61)
         resp = await gcal_list(now.isoformat(), soon.isoformat(), max_items=50)
         items = resp.get("items", [])
-        for ev in items:
-            # Example: you could post a 60-minute reminder into the thread or channel.
-            # This is a stub. Implement dedupe tracking in DB before enabling.
+        for _ev in items:
+            # Implement dedupe + reminder posting if you want.
             pass
     except Exception:
         pass
+
 
 @reminders.before_loop
 async def before_reminders():
@@ -348,6 +509,7 @@ async def on_ready():
     print(f"Logged in as {bot.user} | TZ={TZ_NAME} | Calendar={CAL_ID}")
     if not reminders.is_running():
         reminders.start()
+
 
 if __name__ == "__main__":
     token = os.getenv("DISCORD_BOT_TOKEN")
