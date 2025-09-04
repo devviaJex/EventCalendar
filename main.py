@@ -174,6 +174,15 @@ class RSVPView(discord.ui.View):
             "INSERT OR REPLACE INTO rsvps(event_id, user_id, status) VALUES(?,?,?)",
             (self.event_id, interaction.user.id, status),
         )
+        # Try to add the user to the event's private thread
+        try:
+            row = await db_fetchone("SELECT thread_id FROM events_map WHERE event_id=?", (self.event_id,))
+            if row and row[0]:
+                thread = interaction.client.get_channel(row[0]) or await interaction.client.fetch_channel(row[0])
+                await thread.add_user(interaction.user)
+        except Exception:
+            pass
+
         await interaction.response.send_message(f"Your RSVP is **{status}**", ephemeral=True)
 
     @discord.ui.button(label="Going", style=discord.ButtonStyle.success, emoji="✅")
@@ -187,6 +196,7 @@ class RSVPView(discord.ui.View):
     @discord.ui.button(label="Not Going", style=discord.ButtonStyle.danger, emoji="❌")
     async def notgoing(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._set_status(interaction, "not going")
+
 
 # ---------------------------
 # Embeds
