@@ -1,0 +1,8 @@
+discord.py
+google-api-python-client
+google-auth
+apscheduler
+pytz
+python-dateutil
+python-dotenv
+aiosqlite
