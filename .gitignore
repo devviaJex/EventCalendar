@@ -6,3 +6,5 @@
 /env
 /.vs/DCbot/v17
 /.vs
+/cogs/__pycache__
+/__pycache__

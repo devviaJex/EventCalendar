@@ -10,9 +10,9 @@ from discord.ext import commands
 from shared import (
     TZ, TZ_NAME,
     EVENT_CHANNEL_ID, CREATE_FROM_CHANNEL_ID,
-    INTEREST_TAGS, pick_color_id, norm_tag, display_dt,
+    norm_tag, display_dt,
     gcal_insert_event, gcal_list,
-    db_exec, db_fetchone,
+    db_exec, db_fetchone, get_sheets_client
 )
 def _part_of_day_tag(dt) -> str:
     if 11 <= dt.hour < 14:
@@ -158,7 +158,8 @@ class Events(commands.Cog):
             return await interaction.response.send_message(f"Time parse error: {e}", ephemeral=True)
 
         tag_list = [norm_tag(t) for t in tags.split(",") if t.strip()] if tags else []
-        color_id = pick_color_id(tag_list)
+        if pod_tag not in tag_list:
+            tag_list.insert(0, pod_tag)
 
         body = {
             "summary": title,
@@ -167,9 +168,7 @@ class Events(commands.Cog):
             "start": {"dateTime": start_local.isoformat()},
             "end": {"dateTime": end_local.isoformat()},
         }
-        if color_id:
-            body["colorId"] = color_id
-
+        
         await interaction.response.send_message("Creating event...", ephemeral=True)
         try:
             event = await gcal_insert_event(body)

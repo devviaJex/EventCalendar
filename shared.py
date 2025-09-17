@@ -22,6 +22,8 @@ EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", "0"))
 CREATE_FROM_CHANNEL_ID = int(os.getenv("CREATE_FROM_CHANNEL_ID", "0"))
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 ROLES_SHEET = os.getenv("ROLES_SHEET_ID")  # Google Sheet ID for roles
+RULES_SHEET = os.getenv("RULES_SHEET_ID")  # Google Sheet ID for rules
+MEMBERS_SHEET = os.getenv("MEMBERS_SHEET_ID")  # Google Sheet ID for members
 
 if not CAL_ID:
     raise RuntimeError("CALENDAR_ID env var is required.")
@@ -42,6 +44,7 @@ _SHEETS = build("sheets", "v4", credentials=creds)
 def get_sheets_client():
     """High-level gspread client, if you want it."""
     return gspread.authorize(creds)
+
 
 # ---- DB helpers ----
 async def db_exec(query: str, params: tuple = ()):
