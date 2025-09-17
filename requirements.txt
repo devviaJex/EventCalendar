@@ -6,3 +6,4 @@ pytz
 python-dateutil
 python-dotenv
 aiosqlite
+gspread

@@ -23,7 +23,8 @@ CREATE_FROM_CHANNEL_ID = int(os.getenv("CREATE_FROM_CHANNEL_ID", "0"))
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 ROLES_SHEET = os.getenv("ROLES_SHEET_ID")  # Google Sheet ID for roles
 RULES_SHEET = os.getenv("RULES_SHEET_ID")  # Google Sheet ID for rules
-MEMBERS_SHEET = os.getenv("MEMBERS_SHEET_ID")  # Google Sheet ID for members
+MEMBERS_TAB = os.getenv("ROLES_SHEET_TAB", "Members")  # Google Tab ID for members
+ROLES_TAB = os.getenv("ROLES_SHEET_TAB", "Permission_Roles")  # Tab name in roles sheet
 
 if not CAL_ID:
     raise RuntimeError("CALENDAR_ID env var is required.")
