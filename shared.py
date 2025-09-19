@@ -142,7 +142,7 @@ def norm_tag(t: str) -> str:
     return t.strip()
 
 # ---- Sheets helpers ----
-async def list_interest_roles(range_name: str = "roles!A:C") -> list[str]:
+async def list_interest_roles(range_name: str = "Permission_Roles!A:C") -> list[str]:
     """
     Return a list of role names where Role Type == 'interest'.
     Headers expected: A='Role', B='Role Type', C optional.

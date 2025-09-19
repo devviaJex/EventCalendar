@@ -3,7 +3,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from shared import INTEREST_TAGS, EVENT_CHANNEL_ID, CREATE_FROM_CHANNEL_ID, _GCAL
+from shared import EVENT_CHANNEL_ID, CREATE_FROM_CHANNEL_ID, _GCAL,list_interest_roles
 
 class Subscriptions(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -11,7 +11,7 @@ class Subscriptions(commands.Cog):
 
     @app_commands.command(description="Subscribe to an event interest tag")
     @app_commands.describe(tag="Pick a tag to subscribe to")
-    @app_commands.choices(tag=[app_commands.Choice(name=t, value=t) for t in INTEREST_TAGS])
+    @app_commands.choices(tag=[app_commands.Choice(name=t, value=t) for t in list_interest_roles])
     async def notify_subscribe(self, interaction: discord.Interaction, tag: app_commands.Choice[str]):
         role = discord.utils.get(interaction.guild.roles, name=tag.value)
         if not role:
