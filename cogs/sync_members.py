@@ -5,10 +5,8 @@ from discord.ext import commands
 from typing import List
 from datetime import datetime, timezone
 
-from shared import open_ws  # your helper for gspread
-            import GUILD_ID
-
-#GUILD_ID = 123456789012345678
+from shared import open_ws, GUILD_ID 
+    
 TAB_NAME = "MemberTable"
 
 UTC = timezone.utc

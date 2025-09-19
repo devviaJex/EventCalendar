@@ -1,6 +1,7 @@
 import os
 import discord
 from discord.ext import commands, tasks
+from discord.guild import Guild
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,7 +25,7 @@ async def on_ready():
         await bot.tree.sync()
     except Exception as e:
         print("Sync error:", e)
-    print(f"Logged in as {bot.user}")
+        print(f"Logged in as {bot.user} for Guild # {GUILD_ID} / {Guild.str(GUILD_ID)}")
 
 @bot.tree.command(description="Where is the bot running?")
 async def whereami(interaction: discord.Interaction):
