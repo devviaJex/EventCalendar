@@ -46,6 +46,11 @@ def get_sheets_client():
     """High-level gspread client, if you want it."""
     return gspread.authorize(creds)
 
+def open_ws(spreadsheet_id: str, tab: str):
+    gc = get_sheets_client()
+    sh = gc.open_by_key(spreadsheet_id)
+    return sh.worksheet(tab)  # returns gspread.Worksheet
+
 
 # ---- DB helpers ----
 async def db_exec(query: str, params: tuple = ()):
