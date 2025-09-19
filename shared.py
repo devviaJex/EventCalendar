@@ -23,7 +23,8 @@ CREATE_FROM_CHANNEL_ID = int(os.getenv("CREATE_FROM_CHANNEL_ID", "0"))
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 ROLES_SHEET = os.getenv("ROLES_SHEET_ID")  # Google Sheet ID for roles
 RULES_SHEET = os.getenv("RULES_SHEET_ID")  # Google Sheet ID for rules
-MEMBERS_SHEET = os.getenv("MEMBERS_SHEET_ID")  # Google Sheet ID for members
+MEMBERS_TAB = os.getenv("ROLES_SHEET_TAB", "Members")  # Google Tab ID for members
+ROLES_TAB = os.getenv("ROLES_SHEET_TAB", "Permission_Roles")  # Tab name in roles sheet
 
 if not CAL_ID:
     raise RuntimeError("CALENDAR_ID env var is required.")
@@ -44,6 +45,11 @@ _SHEETS = build("sheets", "v4", credentials=creds)
 def get_sheets_client():
     """High-level gspread client, if you want it."""
     return gspread.authorize(creds)
+
+def open_ws(spreadsheet_id: str, tab: str):
+    gc = get_sheets_client()
+    sh = gc.open_by_key(spreadsheet_id)
+    return sh.worksheet(tab)  # returns gspread.Worksheet
 
 
 # ---- DB helpers ----
@@ -141,7 +147,7 @@ def norm_tag(t: str) -> str:
     return t.strip()
 
 # ---- Sheets helpers ----
-async def list_interest_roles(range_name: str = "roles!A:C") -> list[str]:
+async def list_interest_roles(range_name: str = "Permission_Roles!A:C") -> list[str]:
     """
     Return a list of role names where Role Type == 'interest'.
     Headers expected: A='Role', B='Role Type', C optional.

@@ -15,6 +15,7 @@ async def on_ready():
             await bot.load_extension("cogs.events")
             await bot.load_extension("cogs.subscriptions")
             await bot.load_extension("cogs.reminders")
+            await bot.load_extension("cogs.sync_members")
             bot._cogs_loaded = True
         except Exception as e:
             print("Cog load error:", e)

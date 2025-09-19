@@ -12,7 +12,7 @@ from shared import (
     EVENT_CHANNEL_ID, CREATE_FROM_CHANNEL_ID,
     norm_tag, display_dt,
     gcal_insert_event, gcal_list,
-    db_exec, db_fetchone, get_sheets_client
+    db_exec, db_fetchone, get_sheets_client,list_interest_roles
 )
 def _part_of_day_tag(dt) -> str:
     if 11 <= dt.hour < 14:
