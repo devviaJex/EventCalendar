@@ -25,6 +25,7 @@ ROLES_SHEET = os.getenv("ROLES_SHEET_ID")  # Google Sheet ID for roles
 RULES_SHEET = os.getenv("RULES_SHEET_ID")  # Google Sheet ID for rules
 MEMBERS_TAB = os.getenv("ROLES_SHEET_TAB", "Members")  # Google Tab ID for members
 ROLES_TAB = os.getenv("ROLES_SHEET_TAB", "Permission_Roles")  # Tab name in roles sheet
+GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
 if not CAL_ID:
     raise RuntimeError("CALENDAR_ID env var is required.")

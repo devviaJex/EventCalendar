@@ -6,8 +6,9 @@ from typing import List
 from datetime import datetime, timezone
 
 from shared import open_ws  # your helper for gspread
+            import GUILD_ID
 
-GUILD_ID = 123456789012345678
+#GUILD_ID = 123456789012345678
 TAB_NAME = "MemberTable"
 
 UTC = timezone.utc

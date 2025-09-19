@@ -7,7 +7,7 @@ load_dotenv()
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
-
+GUILD_ID = int(os.getenv("GUILD_ID"))
 @bot.event
 async def on_ready():
     if not getattr(bot, "_cogs_loaded", False):
@@ -16,6 +16,7 @@ async def on_ready():
             await bot.load_extension("cogs.subscriptions")
             await bot.load_extension("cogs.reminders")
             await bot.load_extension("cogs.sync_members")
+            await bot.tree.sync(guild=discord.Object(GUILD_ID)) 
             bot._cogs_loaded = True
         except Exception as e:
             print("Cog load error:", e)
@@ -43,3 +44,15 @@ if __name__ == "__main__":
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN is required in environment or .env")
     bot.run(token)
+
+# added for sync roles function
+async def setup_extensions():
+    await bot.load_extension("cogs.roles_sync")
+
+async def main():
+    async with bot:
+        await setup_extensions()
+        await bot.start(os.getenv("DISCORD_BOT_TOKEN"))
+
+import asyncio
+asyncio.run(main())
