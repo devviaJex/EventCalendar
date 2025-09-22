@@ -5,7 +5,7 @@ from discord.ext import commands
 from typing import List
 from datetime import datetime, timezone
 
-from shared import open_ws, GUILD_ID, MEMBERS_TAB
+from shared import open_ws, GUILD_ID, MEMBERS_TAB,ROLES_SHEET,RULES_SHEET
     
 TAB_NAME = MEMBERS_TAB
 
