@@ -5,9 +5,9 @@ from discord.ext import commands
 from typing import List
 from datetime import datetime, timezone
 
-from shared import open_ws, GUILD_ID 
+from shared import open_ws, GUILD_ID, MEMBERS_TAB
     
-TAB_NAME = "MemberTable"
+TAB_NAME = MEMBERS_TAB
 
 UTC = timezone.utc
 
@@ -31,7 +31,7 @@ class SyncMembers(commands.Cog):
         async for m in guild.fetch_members(limit=None):
             members.append(m)
 
-        ws = open_ws(TAB_NAME)
+        ws = open_ws(ROLES_SHEET,TAB_NAME)
         values = ws.get_all_values()
         header = values[0] if values else []
 

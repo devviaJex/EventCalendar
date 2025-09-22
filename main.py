@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 intents = discord.Intents.default()
+intents.members = True   # required
+intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 GUILD_ID = int(os.getenv("GUILD_ID"))
 @bot.event
@@ -17,6 +19,7 @@ async def on_ready():
             await bot.load_extension("cogs.subscriptions")
             await bot.load_extension("cogs.reminders")
             await bot.load_extension("cogs.sync_members")
+            await bot.load_extension("cogs.roles_sync")
             await bot.tree.sync(guild=discord.Object(GUILD_ID)) 
             bot._cogs_loaded = True
         except Exception as e:
@@ -25,6 +28,7 @@ async def on_ready():
         await bot.tree.sync()
     except Exception as e:
         print("Sync error:", e)
+        
         print(f"Logged in as {bot.user} for Guild # {GUILD_ID} / {Guild.str(GUILD_ID)}")
 
 @bot.tree.command(description="Where is the bot running?")
