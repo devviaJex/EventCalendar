@@ -22,14 +22,15 @@ async def on_ready():
             await bot.load_extension("cogs.roles_sync")
             await bot.tree.sync(guild=discord.Object(GUILD_ID)) 
             bot._cogs_loaded = True
+            guildname = bot.get_guild(GUILD_ID).name
         except Exception as e:
             print("Cog load error:", e)
     try:
         await bot.tree.sync()
     except Exception as e:
         print("Sync error:", e)
-        
-        print(f"Logged in as {bot.user} for Guild # {GUILD_ID} / {Guild.str(GUILD_ID)}")
+
+    print(f"Logged in as {bot.user} for Guild #{GUILD_ID}/{guildname}")
 
 @bot.tree.command(description="Where is the bot running?")
 async def whereami(interaction: discord.Interaction):
