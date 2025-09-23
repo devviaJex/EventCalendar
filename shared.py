@@ -39,7 +39,8 @@ if not os.path.isfile(KEY_PATH):
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly"
 ]
 creds = Credentials.from_service_account_file(KEY_PATH, scopes=SCOPES)
 _GCAL = build("calendar", "v3", credentials=creds)
@@ -140,7 +141,7 @@ async def list_interest_roles() -> list[str]:
     if not vals: return []
     hdr = [h.strip().lower() for h in vals[0]]
     try:
-        i_role = hdr.index("role"); i_type = hdr.index("role type")
+        i_role = hdr.index("role name"); i_type = hdr.index("role type")
     except ValueError:
         return []
     out = []
