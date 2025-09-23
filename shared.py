@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from dateutil import parser as du_parser
+from typing import Dict, List, Tuple, Optional
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
@@ -133,24 +134,63 @@ def _rows_to_dicts(values: list[list[str]]) -> list[dict]:
         out.append(dict(zip(hdr, row)))
     return out
 
-# roles: filter Role Type == 'interest'
-async def list_interest_roles() -> list[str]:
-    if not ROLES_SHEET or not ROLES_TAB:
-        return []
+# Read once, return {role_type: [role names]}
+async def list_roles_by_type(allowed: Optional[set[str]] = None) -> Dict[str, List[Tuple[str, str]]]:
+    """
+    Returns {role_type: [(name, desc), ...]} from the Roles sheet.
+    Expected headers: Role name | Role Type | Description (case-insensitive)
+    If Description is missing, use empty string.
+    """
     vals = await sheet_values(ROLES_SHEET, ROLES_TAB, "A:C")
-    if not vals: return []
+    if not vals:
+        return {}
+
     hdr = [h.strip().lower() for h in vals[0]]
     try:
-        i_role = hdr.index("role name"); i_type = hdr.index("role type")
+        i_role = hdr.index("role name")
     except ValueError:
-        return []
-    out = []
+        i_role = 0
+    try:
+        i_type = hdr.index("role type")
+    except ValueError:
+        i_type = 1
+    i_desc = hdr.index("description") if "description" in hdr else None
+
+    out: Dict[str, List[Tuple[str, str]]] = {}
     for r in vals[1:]:
-        if len(r) <= max(i_role, i_type): continue
-        if str(r[i_type]).strip().lower() == "interest":
-            name = str(r[i_role]).strip()
-            if name: out.append(name)
+        if len(r) <= max(i_role, i_type):
+            continue
+        t = str(r[i_type]).strip()
+        if allowed and t not in allowed:
+            continue
+        name = str(r[i_role]).strip()
+        if not name:
+            continue
+        desc = str(r[i_desc]).strip() if i_desc is not None and i_desc < len(r) else ""
+        out.setdefault(t, []).append((name, desc))
     return out
+
+async def get_tags(tag_type: str) -> List[Tuple[str, str]]:
+    """Return [(name, desc)] for a single Role Type."""
+    data = await list_roles_by_type(allowed={tag_type})
+    return data.get(tag_type, [])
+
+
+# Convenience: get only one or many types
+async def list_roles_for(types: list[str] | set[str]) -> list[str]:
+    m = await list_roles_by_type(set(t.strip().lower() for t in types))
+    # flatten, keep order within each type
+    return [n for _, names in m.items() for n in names]
+
+# Backwards-compat: interests only
+async def list_interest_roles() -> list[str]:
+    return await list_roles_for({"interest"})
+
+# Discover available types from sheet
+async def list_role_types() -> list[str]:
+    m = await list_roles_by_type(None)
+    return sorted(m.keys())
+
 
 # members tab (same spreadsheet)
 async def list_members() -> list[dict]:
