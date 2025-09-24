@@ -1,35 +1,40 @@
 import os
 import discord
-from discord.ext import commands, tasks
-from discord.guild import Guild
+from discord.ext import commands
 from dotenv import load_dotenv
 
 load_dotenv()
 
 intents = discord.Intents.default()
-intents.members = True   # required
+intents.members = True
 intents.guilds = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
-GUILD_ID = int(os.getenv("GUILD_ID"))
+GUILD_ID = int(os.getenv("GUILD_ID", "0"))
+
+EXTS = [
+    "cogs.events",
+    "cogs.subscriptions",
+    "cogs.reminders",
+    "cogs.sync_members",
+    "cogs.roles_sync",
+    "cogs.event_wizard",
+]
+
 @bot.event
 async def on_ready():
+    guild = bot.get_guild(GUILD_ID)
+    guildname = guild.name if guild else f"id:{GUILD_ID}"
+
     if not getattr(bot, "_cogs_loaded", False):
         try:
-            await bot.load_extension("cogs.events")
-            await bot.load_extension("cogs.subscriptions")
-            await bot.load_extension("cogs.reminders")
-            await bot.load_extension("cogs.sync_members")
-            await bot.load_extension("cogs.roles_sync")
-            await bot.load_extension("cogs.event_wizard")
-            await bot.tree.sync(guild=discord.Object(GUILD_ID)) 
+            for ext in EXTS:
+                await bot.load_extension(ext)
+            await bot.tree.sync(guild=discord.Object(GUILD_ID))
+            await bot.tree.sync()
             bot._cogs_loaded = True
-            guildname = bot.get_guild(GUILD_ID).name
         except Exception as e:
-            print("Cog load error:", e)
-    try:
-        await bot.tree.sync()
-    except Exception as e:
-        print("Sync error:", e)
+            print("Cog or sync error:", e)
 
     print(f"Logged in as {bot.user} for Guild #{GUILD_ID}/{guildname}")
 
@@ -42,24 +47,10 @@ async def whereami(interaction: discord.Interaction):
         platform = "Replit"
     elif os.environ.get("RAILWAY_PROJECT_ID"):
         platform = "Railway"
-    await interaction.response.send_message(
-        f"Running on **{platform}**.", ephemeral=True
-    )
+    await interaction.response.send_message(f"Running on **{platform}**.", ephemeral=True)
 
 if __name__ == "__main__":
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN is required in environment or .env")
     bot.run(token)
-
-# added for sync roles function
-async def setup_extensions():
-    await bot.load_extension("cogs.roles_sync")
-
-async def main():
-    async with bot:
-        await setup_extensions()
-        await bot.start(os.getenv("DISCORD_BOT_TOKEN"))
-
-import asyncio
-asyncio.run(main())
