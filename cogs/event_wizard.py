@@ -170,4 +170,5 @@ class EventWizard(commands.Cog):
     async def event_create_activity(self, i: discord.Interaction):
         await i.response.send_modal(EventCreateModal("Activity Type"))
 
-
+async def setup(bot: commands.Bot):
+    await bot.add_cog(EventWizard(bot))
