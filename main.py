@@ -20,6 +20,7 @@ async def on_ready():
             await bot.load_extension("cogs.reminders")
             await bot.load_extension("cogs.sync_members")
             await bot.load_extension("cogs.roles_sync")
+            await bot.load_extension("cogs.event_wizard")
             await bot.tree.sync(guild=discord.Object(GUILD_ID)) 
             bot._cogs_loaded = True
             guildname = bot.get_guild(GUILD_ID).name
