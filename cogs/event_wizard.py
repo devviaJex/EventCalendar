@@ -1,13 +1,13 @@
 from typing import List, Tuple
+import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-from shared import get_tags
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-import re
 
-from shared import EVENT_CHANNEL_ID, get_tags, gcal_insert_event,TZ,TZ_NAME   # make sure imported
+from shared import EVENT_CHANNEL_ID, get_tags, gcal_insert_event, TZ_NAME
 
 TAG_TYPES = ["Area", "Activity Type", "Interest"]
 
@@ -19,7 +19,8 @@ def _match_forum_tags(channel: discord.ForumChannel, wanted: list[str]) -> list[
     out = []
     for w in wanted:
         t = by_name.get(w.lower())
-        if t: out.append(t)
+        if t:
+            out.append(t)
     return out
 
 class TagSelect(discord.ui.Select):
@@ -65,6 +66,22 @@ class TagSelectView(discord.ui.View):
         self.stop()
         await interaction.response.edit_message(content="Canceled.", view=None)
 
+class EventCreateModal(discord.ui.Modal, title="Create Event"):
+    def __init__(self, tag_type: str):
+        super().__init__()
+        self.tag_type = tag_type
+        self.title_in = discord.ui.TextInput(label="Title", max_length=120, required=True)
+        self.date_in = discord.ui.TextInput(label="Date (YYYY-MM-DD)", required=True)
+        self.time_in = discord.ui.TextInput(label="Time (HH:MM 24h)", required=True)
+        self.loc_in = discord.ui.TextInput(label="Location", required=False)
+        self.desc_in = discord.ui.TextInput(
+            label="Details", style=discord.TextStyle.paragraph, required=False, max_length=1000
+        )
+        self.add_item(self.title_in)
+        self.add_item(self.date_in)
+        self.add_item(self.time_in)
+        self.add_item(self.loc_in)
+        self.add_item(self.desc_in)
 
     async def on_submit(self, interaction: discord.Interaction):
         # parse date/time
@@ -79,7 +96,7 @@ class TagSelectView(discord.ui.View):
         end = start + timedelta(hours=2)
         part_tag = _part_of_day_tag(start)
 
-        # let user pick tags
+        # tag picker
         options = await get_tags(self.tag_type)
         view = TagSelectView(self.tag_type, options)
         await interaction.response.send_message(
@@ -95,7 +112,7 @@ class TagSelectView(discord.ui.View):
         await view.wait()
         chosen = view.selected or []
 
-        # create Google Calendar event
+        # Google Calendar
         try:
             gcal_event = await gcal_insert_event(
                 self.title_in.value, start, end, self.loc_in.value or None, self.desc_in.value or None
@@ -104,29 +121,30 @@ class TagSelectView(discord.ui.View):
         except Exception:
             gcal_link = None
 
-        # post to Discord event channel
+        # Discord post
         channel = interaction.client.get_channel(EVENT_CHANNEL_ID)
+        if not channel:
+            await interaction.followup.send("Event channel not found.", ephemeral=True)
+            return
+
         embed = discord.Embed(title=self.title_in.value, description=self.desc_in.value or "")
         embed.add_field(name="When", value=start.strftime("%a %b %d, %I:%M %p"))
         if self.loc_in.value:
             embed.add_field(name="Where", value=self.loc_in.value, inline=False)
         if chosen:
             embed.add_field(name=f"{self.tag_type}", value=", ".join(chosen), inline=False)
-        embed.set_footer(text=f"{part_tag}")
+        embed.set_footer(text=part_tag)
 
         if isinstance(channel, discord.ForumChannel):
             tags = _match_forum_tags(channel, chosen + [part_tag])
-            thread = await channel.create_thread(
+            await channel.create_thread(
                 name=self.title_in.value,
-                content=(f"{gcal_link}" if gcal_link else None),
+                content=(gcal_link or None),
                 embed=embed,
                 applied_tags=tags[:5] if tags else None,
             )
-        elif isinstance(channel, (discord.TextChannel, discord.Thread)):
-            msg = await channel.send(content=(f"{gcal_link}" if gcal_link else None), embed=embed)
         else:
-            await interaction.followup.send("Event channel not found.", ephemeral=True)
-            return
+            await channel.send(content=(gcal_link or None), embed=embed)
 
         await interaction.followup.send("Event created.", ephemeral=True)
 
@@ -140,7 +158,6 @@ class EventWizard(commands.Cog):
     async def event_wizard_cmd(self, i: discord.Interaction, tag_type: app_commands.Choice[str]):
         await i.response.send_modal(EventCreateModal(tag_type.value))
 
-    # optional distinct shortcuts
     @app_commands.command(name="wizard_interest", description="Wizard with Interest tags")
     async def wizard_interest(self, i: discord.Interaction):
         await i.response.send_modal(EventCreateModal("Interest"))
