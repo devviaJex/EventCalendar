@@ -14,14 +14,15 @@ TAG_TYPES = ["Area", "Activity Type", "Interest"]
 def _part_of_day_tag(dt_: datetime) -> str:
     return "mid-day" if 11 <= dt_.hour < 14 else ("am" if dt_.hour < 12 else "pm")
 
-def _match_forum_tags(channel: discord.ForumChannel, wanted: list[str]) -> list[discord.ForumTag]:
-    by_name = {t.name.lower(): t for t in channel.available_tags}
-    out = []
-    for w in wanted:
-        t = by_name.get(w.lower())
-        if t:
-            out.append(t)
-    return out
+def _match_forum_tags(channel: discord.ForumChannel, wanted: list[str]) -> tuple[list[discord.ForumTag], list[str]]:
+    by_name = {t.name.strip().lower(): t for t in channel.available_tags}
+    wanted_norm = [w.strip().lower() for w in wanted if w and w.strip()]
+    found, missing = [], []
+    for w in wanted_norm:
+        t = by_name.get(w)
+        (found.append(t) if t else missing.append(w))
+    return found, missing
+
 
 class TagSelect(discord.ui.Select):
     def __init__(self, tag_type: str, options: List[Tuple[str, str]]):
