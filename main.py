@@ -14,10 +14,11 @@ GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
 EXTS = [
     "cogs.events",
+    "cogs.yardsale_event",
     "cogs.subscriptions",
     "cogs.reminders",
-    "cogs.sync_members",
-    "cogs.roles_sync",
+    #"cogs.sync_members",
+    #"cogs.roles_sync",
     "cogs.event_wizard",
 ]
 
