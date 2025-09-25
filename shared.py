@@ -10,6 +10,9 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from dateutil import parser as du_parser
 from typing import Dict, List, Tuple, Optional
+import time, random, httplib2
+from google_auth_httplib2 import AuthorizedHttp
+from googleapiclient.errors import HttpError
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
@@ -44,8 +47,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly"
 ]
 creds = Credentials.from_service_account_file(KEY_PATH, scopes=SCOPES)
-_GCAL = build("calendar", "v3", credentials=creds)
-_SHEETS = build("sheets", "v4", credentials=creds)
+_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=10))
+_GCAL = build("calendar", "v3", http=_http, cache_discovery=False)
+_SHEETS = build("sheets", "v4", http=_http, cache_discovery=False)
 
 # --- DB helpers ---
 
@@ -116,14 +120,22 @@ def _a1(tab: str, rng: str) -> str:
     safe = (tab or "").replace("'", "''")
     return f"'{safe}'!{rng}" if tab else rng
 
+def _sheets_get(sheet_id: str, a1: str, retries: int = 3) -> list[list[str]]:
+    for attempt in range(1, retries + 1):
+        try:
+            resp = _SHEETS.spreadsheets().values().get(
+                spreadsheetId=sheet_id, range=a1
+            ).execute(num_retries=2)
+            return resp.get("values", []) or []
+        except Exception:
+            if attempt == retries:
+                raise
+            time.sleep((2 ** (attempt - 1)) + random.random())
+
 async def sheet_values(sheet_id: str, tab: str, rng: str) -> list[list[str]]:
     a1 = _a1(tab, rng)
-    data = await asyncio.to_thread(
-        lambda: _SHEETS.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=a1
-        ).execute()
-    )
-    return data.get("values", [])
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _sheets_get, sheet_id, a1)
 
 def _rows_to_dicts(values: list[list[str]]) -> list[dict]:
     if not values: return []
@@ -205,10 +217,18 @@ def norm_tag(t: str) -> str:
 # def norm_tag(t: str) -> str:
 #     return " ".join(t.split()).strip().lower()
 
-async def gcal_insert_event(body: dict):
+async def gcal_insert_event(summary: str, start_dt, end_dt, location: str|None, description: str|None):
+    body = {
+        "summary": summary,
+        "location": location or None,
+        "description": description or None,
+        "start": {"dateTime": start_dt.isoformat(), "timeZone": TZ_NAME},
+        "end":   {"dateTime": end_dt.isoformat(),   "timeZone": TZ_NAME},
+    }
     return await asyncio.to_thread(
         lambda: _GCAL.events().insert(calendarId=CAL_ID, body=body).execute()
     )
+
 
 async def gcal_list(time_min_iso: str, time_max_iso: str, max_items: int = 25):
     return await asyncio.to_thread(
