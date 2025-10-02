@@ -18,6 +18,7 @@ EXTS = [
     "cogs.reminders",
     "cogs.event_wizard",
     "cogs.yardsale_event",
+    "cogs.dynamic_events",
 ]
 
 @bot.event
@@ -48,8 +49,10 @@ async def whereami(interaction: discord.Interaction):
         platform = "Railway"
     await interaction.response.send_message(f"Running on **{platform}**.", ephemeral=True)
 
-if __name__ == "__main__":
-    token = os.getenv("DISCORD_BOT_TOKEN")
+#async def _cb(interaction: discord.Interaction, _cfg=cfg):
+
+    if __name__ == "__main__":
+        token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN is required in environment or .env")
     bot.run(token)

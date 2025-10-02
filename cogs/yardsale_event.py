@@ -96,7 +96,7 @@ class ForumTagView(discord.ui.View):
 
 # ---------- modal (max 5 inputs)
 
-class YardSaleEventModal(discord.ui.Modal, title="Schedule Yard Sale Event"):
+class YardSaleEventModal(discord.ui.Modal, title="Schedule Yard/Estate/Auction Sale Event"):
     def __init__(self, channel_id: int):
         super().__init__()
         self.channel_id = channel_id
@@ -189,18 +189,37 @@ class YardSaleEventModal(discord.ui.Modal, title="Schedule Yard Sale Event"):
         if self.loc_in.value:
             embed.add_field(name="Where", value=self.loc_in.value, inline=False)
         embed.add_field(name="Tags", value=", ".join(chosen_names), inline=False)
-        if calendar_links:
-            shown = "\n".join(calendar_links[:3])
-            more = f"\n(+{len(calendar_links)-3} more)" if len(calendar_links) > 3 else ""
-            embed.add_field(name="Calendar", value=shown + more, inline=False)
+
+        if len(calendar_links) == 1:
+            cal_field = f"[Google Calendar]({calendar_links[0]})"
+        else:
+            labels = []
+            idx = 0
+            for day in _daterange(start_day, end_day):
+                if idx >= len(calendar_links):
+                    break
+                labels.append(f"[{day.strftime('%a %b %d')}]({calendar_links[idx]})")
+                idx += 1
+            cal_field = " | ".join(labels[:3])
+            if len(calendar_links) > 3:
+                cal_field += f" (+{len(calendar_links)-3} more)"
+        embed.add_field(name="Calendar", value=cal_field, inline=False)
+
+
+        # title prefix: MM/DD or MM/DD-MM/DD
+        if start_day.date() == end_day.date():
+            title_prefix = start_full.strftime("%m/%d")
+        else:
+            title_prefix = f"{start_day.strftime('%m/%d')}-{end_day.strftime('%m/%d')}"
+        final_title = f"{title_prefix} {self.title_in.value}"
 
         await channel.create_thread(
-            name=self.title_in.value,
+            name=final_title,
             content=None,
             embed=embed,
             applied_tags=tags[:5],
         )
-        await interaction.followup.send("Yard sale event posted.{name}", ephemeral=True)
+        await interaction.followup.send("Y/E/A {name} event posted.", ephemeral=True)
 
 # ---------- cog
 
@@ -209,7 +228,7 @@ class YardSaleEvents(commands.Cog):
         self.bot = bot
 
     #@app_commands.checks.has_role("eventhost")
-    @app_commands.command(name="event_yardsale_create", description="Create a yard sale event in the yard sale forum")
+    @app_commands.command(name="event_yardsale_create", description="Create an event in the Yard/Estate/Auction Sale Forum")
     async def event_yardsale_create(self, i: discord.Interaction):
         await i.response.send_modal(YardSaleEventModal(YARDSALE_CHANNEL_ID))
 

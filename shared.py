@@ -36,6 +36,7 @@ RULES_SHEET = os.getenv("RULES_SHEET_ID")
 EVENT_SHEET = os.getenv("EVENT_SHEET_ID")
 EVENT_TAB   = os.getenv("EVENT_TAB_NAME", "Events")
 YARDSALE_CHANNEL_ID=os.getenv("YARDSALE_CHANNEL_ID", "0")
+FOODEATS_CHANNEL_ID=os.getenv("FOODEATS_CHANNEL_ID", "0")
 
 if not CAL_ID:
     raise RuntimeError("CALENDAR_ID is required")
