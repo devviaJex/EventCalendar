@@ -11,7 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from shared import (
-    YARDSALE_CHANNEL_ID,   # int, set in .env and loaded in shared.py
+    YARDSALE_CHANNEL_ID,  # int, set in .env and loaded in shared.py
     TZ_NAME,
     gcal_insert_event,
 )
@@ -25,6 +25,10 @@ def _parse_date(s: str) -> tuple[int, int, int]:
 def _parse_time(s: str) -> tuple[int, int]:
     hh, mm = map(int, re.split("[: ]", s.strip())[:2])
     return hh, mm
+def _parse_mdy12(s: str) -> datetime:
+    s = re.sub(r'\s*(am|pm)\s*$', lambda m: ' ' + m.group(1).upper(), s.strip(), flags=re.I)
+    return datetime.strptime(s, "%m/%d/%Y %I:%M %p")
+
 
 def _daterange(d0: datetime, d1: datetime):
     cur = d0
@@ -97,10 +101,10 @@ class YardSaleEventModal(discord.ui.Modal, title="Schedule Yard Sale Event"):
         super().__init__()
         self.channel_id = channel_id
         self.title_in    = discord.ui.TextInput(label="Title", max_length=120, required=True)
-        self.start_dt_in = discord.ui.TextInput(label="Start (YYYY-MM-DD HH:MM)", required=True)
-        self.end_dt_in   = discord.ui.TextInput(label="End (YYYY-MM-DD HH:MM)", required=True)
+        self.start_dt_in = discord.ui.TextInput(label="Start (MM/DD/YYYY h:mm am/pm)", required=True)
+        self.end_dt_in   = discord.ui.TextInput(label="End (MM/DD/YYYY h:mm am/pm)",   required=True)
         self.loc_in      = discord.ui.TextInput(label="Location (optional)", required=False)
-        self.desc_in     = discord.ui.TextInput(label="Details (optional)", style=discord.TextStyle.paragraph, required=False, max_length=1000)
+        self.desc_in     = discord.ui.TextInput(label="Details", style=discord.TextStyle.paragraph, required=False, max_length=1000)
         for x in (self.title_in, self.start_dt_in, self.end_dt_in, self.loc_in, self.desc_in):
             self.add_item(x)
 
@@ -110,44 +114,36 @@ class YardSaleEventModal(discord.ui.Modal, title="Schedule Yard Sale Event"):
         # parse start and end datetimes
         try:
             tz = ZoneInfo(TZ_NAME)
-            start_full = datetime.strptime(self.start_dt_in.value.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=tz)
-            end_full   = datetime.strptime(self.end_dt_in.value.strip(),   "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+            start_full = _parse_mdy12(self.start_dt_in.value).replace(tzinfo=tz)
+            end_full   = _parse_mdy12(self.end_dt_in.value).replace(tzinfo=tz)
             if end_full.date() < start_full.date():
-                await interaction.followup.send("End date is before start date.", ephemeral=True)
-                return
+                await interaction.followup.send("End date is before start date.", ephemeral=True); return
         except Exception as e:
-            await interaction.followup.send(f"Invalid datetime format: {e}", ephemeral=True)
-            return
+            await interaction.followup.send("Invalid datetime. Use MM/DD/YYYY h:mm am/pm.", ephemeral=True); return
 
         sh, smin = start_full.hour, start_full.minute
         eh, emin = end_full.hour,   end_full.minute
 
-        # pick tags from forum channel
-        # resolve the forum channel robustly
-            chan = None
-            if interaction.guild:  # prefer guild cache first
-                chan = interaction.guild.get_channel(YARDSALE_CHANNEL_ID)
-
-            if chan is None:
-                try:
-                    chan = await interaction.client.fetch_channel(YARDSALE_CHANNEL_ID)  # API fetch
-                except discord.Forbidden:
-                    await interaction.followup.send("Bot lacks permission to view that channel.", ephemeral=True)
-                    return
-                except discord.NotFound:
-                    await interaction.followup.send("Channel ID not found. Check YARDSALE_CHANNEL_ID.", ephemeral=True)
-                    return
-                except Exception as e:
-                    await interaction.followup.send(f"Fetch error: {e}", ephemeral=True)
-                    return
-
-if not isinstance(chan, discord.ForumChannel):
-    await interaction.followup.send(f"Channel type is {getattr(chan, 'type', '?')}. Need a Forum channel.", ephemeral=True)
-    return
+        # resolve forum channel robustly
+        channel = interaction.guild.get_channel(YARDSALE_CHANNEL_ID) if interaction.guild else None
+        if channel is None:
+            try:
+                channel = await interaction.client.fetch_channel(YARDSALE_CHANNEL_ID)
+            except discord.Forbidden:
+                await interaction.followup.send("Bot lacks permission to view that channel.", ephemeral=True); return
+            except discord.NotFound:
+                await interaction.followup.send(f"Channel ID not found. Check YARDSALE_CHANNEL_ID.{YARDSALE_CHANNEL_ID}", ephemeral=True); return
+            except Exception as e:
+                await interaction.followup.send(f"Fetch error: {e}", ephemeral=True); return
 
 
+        if not isinstance(channel, discord.ForumChannel):
+            await interaction.followup.send(f"Channel type is {getattr(channel, 'type', '?')}. Need a Forum channel.", ephemeral=True)
+            return
+
+        # pick tags
         tag_view = ForumTagView(channel)
-        await interaction.followup.send("Choose tags for this event:", view=tag_view, ephemeral=True)
+        await interaction.followup.send("Choose up to 4 tags for this event:", view=tag_view, ephemeral=True)
         await tag_view.wait()
         chosen_names = tag_view.selected
         if not chosen_names:
@@ -204,7 +200,7 @@ if not isinstance(chan, discord.ForumChannel):
             embed=embed,
             applied_tags=tags[:5],
         )
-        await interaction.followup.send("Yard sale event posted.", ephemeral=True)
+        await interaction.followup.send("Yard sale event posted.{name}", ephemeral=True)
 
 # ---------- cog
 
