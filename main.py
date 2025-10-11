@@ -25,18 +25,21 @@ EXTS = [
 async def on_ready():
     guild = bot.get_guild(GUILD_ID)
     guildname = guild.name if guild else f"id:{GUILD_ID}"
-
-    if not getattr(bot, "_cogs_loaded", False):
-        try:
-            for ext in EXTS:
-                await bot.load_extension(ext)
-            await bot.tree.sync(guild=discord.Object(GUILD_ID))
-            await bot.tree.sync()
-            bot._cogs_loaded = True
-        except Exception as e:
-            print("Cog or sync error:", e)
-
     print(f"Logged in as {bot.user} for Guild #{GUILD_ID}/{guildname}")
+
+async def setup_extensions():
+    for ext in EXTS:
+        await bot.load_extension(ext)
+
+@bot.event
+async def setup_hook():
+    # Load cogs before syncing commands
+    await setup_extensions()
+    try:
+        # Guild sync is fast during development
+        await bot.tree.sync(guild=discord.Object(GUILD_ID))
+    except Exception as e:
+        print("Guild sync error:", e)
 
 @bot.tree.command(description="Where is the bot running?")
 async def whereami(interaction: discord.Interaction):
@@ -49,10 +52,8 @@ async def whereami(interaction: discord.Interaction):
         platform = "Railway"
     await interaction.response.send_message(f"Running on **{platform}**.", ephemeral=True)
 
-#async def _cb(interaction: discord.Interaction, _cfg=cfg):
-
-    if __name__ == "__main__":
-        token = os.getenv("DISCORD_BOT_TOKEN")
+if __name__ == "__main__":
+    token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN is required in environment or .env")
     bot.run(token)

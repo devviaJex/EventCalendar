@@ -7,3 +7,5 @@ python-dateutil
 python-dotenv
 aiosqlite
 gspread
+pandas
+openpyxl
