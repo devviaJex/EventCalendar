@@ -15,7 +15,6 @@ from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.errors import HttpError
 from pathlib import Path
 from typing import Iterable, Mapping, Any
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
@@ -232,11 +231,17 @@ def _ensure_parent(path: str | Path) -> Path:
 def _to_dataframe(
     rows: Iterable[Mapping[str, Any]] | Iterable[Iterable[Any]],
     headers: list[str] | None = None,
-) -> pd.DataFrame:
+) -> "pd.DataFrame":
+    try:
+        import pandas as pd
+    except ModuleNotFoundError as e:
+        raise RuntimeError(
+            "pandas is required for Excel helpers. Install with: pip install pandas openpyxl"
+        ) from e
+
     if not rows:
         return pd.DataFrame(columns=headers or [])
     first = next(iter(rows))
-    # If dict-like, build from records
     if isinstance(first, Mapping):
         df = pd.DataFrame(list(rows))
     else:
