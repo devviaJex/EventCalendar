@@ -9,3 +9,7 @@
 /cogs/__pycache__
 /__pycache__
 /creds
+/cogs/new_fed_event.py
+/cogs/dynamic_events.py
+/cogs/new_yea_event.py
+/cogs/dynamic_events.py

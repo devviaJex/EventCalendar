@@ -150,6 +150,62 @@ class EventModal(discord.ui.Modal):
                     parts.append(f"[{d.strftime('%a %b %d')}]({cal_links[idx]})")
                 val = " | ".join(parts[:3]) + (f" (+{len(cal_links)-3} more)" if len(cal_links) > 3 else "")
                 embed.add_field(name="Calendar", value=val, inline=False)
+                # 1) Create Discord scheduled event
+        try:
+            guild = interaction.guild
+            # External event (no voice/stage). Uses your parsed start/end and location.
+            sched = await guild.create_scheduled_event(
+                name=self.title_in.value,
+                start_time=start,
+                end_time=end,
+                entity_type=discord.EntityType.external,
+                location=self.loc_in.value or "TBA",
+                privacy_level=discord.PrivacyLevel.guild_only
+            )
+            sched_url = f"https://discord.com/events/{guild.id}/{sched.id}"
+        except Exception as e:
+            sched = None
+            sched_url = None
+
+        if sched_url:
+            embed.add_field(name="Discord Event", value=f"[Open]({sched_url})", inline=False)
+
+        created = await ch.create_thread(
+            name=final_title,
+            embed=embed,
+            applied_tags=tags[:5],
+        )
+        thread = created.thread if hasattr(created, "thread") else created
+        starter_msg = getattr(created, "message", None)
+
+        # 2) Create event in site API
+        edit_token = uuid.uuid4().hex
+        api_payload = {
+            "title": self.title_in.value,
+            "desc":  self.desc_in.value or "",
+            "start": start.isoformat(),
+            "end":   end.isoformat(),
+            "location": self.loc_in.value or "",
+            "channel_id": ch.id,
+            "thread_id":  thread.id,
+            "discord_event_id": sched.id if sched else None,
+            "creator_user_id": interaction.user.id,
+            "calendar_links": cal_links,  # from your earlier code
+            "manage_token": edit_token,
+        }
+        api_resp = await api_create_event(api_payload)
+        event_id = api_resp.get("id") if api_resp else None
+
+        # 3) DM the creator a manage link
+        try:
+            base = API_BASE or "https://gibsongatorwatch.com"
+            manage_url = f"{base}/events/{event_id or 'pending'}?token={edit_token}"
+            msg = f"Your event is live.\nManage: {manage_url}\nThread: {thread.jump_url}"
+            if sched_url: msg += f"\nDiscord Event: {sched_url}"
+            await interaction.user.send(msg)
+        except Exception:
+            # User DMs off. Fall back to ephemeral notice.
+            await interaction.followup.send("Could not DM you. Enable DMs from server members to receive your manage link.", ephemeral=True)
+
         
-        await ch.create_thread(name=final_title, embed=embed, applied_tags=tags[:5])
         await interaction.followup.send("Event posted.", ephemeral=True)

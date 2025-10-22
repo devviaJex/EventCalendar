@@ -21,7 +21,7 @@ class FOODEATSEvent(commands.Cog):
                 tag_prompt="Choose up to 4 tags for this sale:",
             )))
         cmd = app_commands.Command(
-            name="event_FOODEATS_create",
+            name="event_foodeats_create",
             description="Create Food/Eat/Drink event",
             callback=_cb,  # only 'interaction' param
         )

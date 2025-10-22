@@ -17,6 +17,7 @@ EXTS = [
     "cogs.subscriptions",
     "cogs.reminders",
     "cogs.yardsale_event",
+    "cogs.foodeats_event"
 ]
 
 async def setup_extensions():
@@ -36,7 +37,7 @@ async def setup_hook():
     async def _ping(i: discord.Interaction):
         await i.response.send_message("pong", ephemeral=True)
     bot.tree.add_command(
-        app_commands.Command(name="ping", description="healthcheck", callback=_ping),
+        app_commands.Command(name="pingme", description="healthcheck", callback=_ping),
         guild=GUILD_OBJ,
     )
 
