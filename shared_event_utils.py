@@ -1,21 +1,27 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
 import re, discord
 from shared import TZ_NAME, gcal_insert_event
 import os, uuid, aiohttp
 
-API_BASE = os.getenv("GGW_API_BASE")            # e.g. https://gibsongatorwatch.com
+API_BASE = os.getenv("GGW_API_BASE", "https://gibsongatorwatch.com/api").rstrip("/")
 API_KEY  = os.getenv("GGW_API_KEY")             # bearer token
 
 async def api_create_event(payload: dict) -> dict | None:
-    if not API_BASE or not API_KEY: return None
+    if not API_BASE or not API_KEY:
+        return None
+    url = f"{API_BASE}/events"  # correct: /api + /events
+    headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     async with aiohttp.ClientSession() as s:
-        async with s.post(f"{API_BASE}/api/events", json=payload, headers={"Authorization": f"Bearer {API_KEY}"} ) as r:
-            return await r.json() if r.status < 300 else None
-
+        async with s.post(url, json=payload, headers=headers) as r:
+            try:
+                data = await r.json()
+            except Exception:
+                return None
+            return data if r.status < 300 else None
 
 # ---------- dataclass ----------
 @dataclass(frozen=True)
@@ -115,20 +121,9 @@ class EventModal(discord.ui.Modal):
         tags, missing = resolve_forum_tags(ch, view.selected)
         if not tags:
             await interaction.followup.send("No valid tags selected.", ephemeral=True); return
-
-        # create calendar events
-        cal_links = []
         sd0 = start.replace(hour=0, minute=0, second=0, microsecond=0)
         ed0 = end.replace(hour=0, minute=0, second=0, microsecond=0)
-        for day in daterange(sd0, ed0):
-            sd = day.replace(hour=start.hour, minute=start.minute)
-            ed = day.replace(hour=end.hour, minute=end.minute)
-            if ed <= sd: ed += timedelta(days=1)
-            try:
-                ev = await gcal_insert_event(self.title_in.value, sd, ed, self.loc_in.value or None, self.desc_in.value or None)
-                if ev and ev.get("htmlLink"): cal_links.append(ev["htmlLink"])
-            except Exception:
-                pass
+        cal_links: list[str] = []
 
         # compose embed
         when_lines = [f"{d.strftime('%a %b %d')}  {start.strftime('%H:%M')}-{end.strftime('%H:%M')}" for d in daterange(sd0, ed0)]
@@ -150,26 +145,46 @@ class EventModal(discord.ui.Modal):
                     parts.append(f"[{d.strftime('%a %b %d')}]({cal_links[idx]})")
                 val = " | ".join(parts[:3]) + (f" (+{len(cal_links)-3} more)" if len(cal_links) > 3 else "")
                 embed.add_field(name="Calendar", value=val, inline=False)
-                # 1) Create Discord scheduled event
-        try:
-            guild = interaction.guild
-            # External event (no voice/stage). Uses your parsed start/end and location.
-            sched = await guild.create_scheduled_event(
-                name=self.title_in.value,
-                start_time=start,
-                end_time=end,
-                entity_type=discord.EntityType.external,
-                location=self.loc_in.value or "TBA",
-                privacy_level=discord.PrivacyLevel.guild_only
+
+                # --- Create Discord scheduled event (with perms + time guards) ---
+        guild = interaction.guild
+        me = guild.me if guild else None
+        sched = None
+        sched_url = None
+
+        if not guild or not me or not me.guild_permissions.manage_events:
+            await interaction.followup.send(
+                "Bot lacks 'Manage Events' permission. Enable it to create Discord Events.",
+                ephemeral=True,
             )
-            sched_url = f"https://discord.com/events/{guild.id}/{sched.id}"
-        except Exception as e:
-            sched = None
-            sched_url = None
+        else:
+            start_utc = start.astimezone(timezone.utc)
+            end_utc   = end.astimezone(timezone.utc)
+            now_utc   = datetime.now(timezone.utc)
+
+            if start_utc <= now_utc:
+                start_utc = now_utc.replace(second=0, microsecond=0) + timedelta(minutes=2)
+                if end_utc <= start_utc:
+                    end_utc = start_utc + timedelta(hours=1)
+
+            try:
+                sched = await guild.create_scheduled_event(
+                    name=self.title_in.value[:100],
+                    start_time=start_utc,
+                    end_time=end_utc,
+                    entity_type=discord.EntityType.external,
+                    location=(self.loc_in.value or "TBA")[:100],
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                    description=(self.desc_in.value or "")[:1000],
+                )
+                sched_url = f"https://discord.com/events/{guild.id}/{sched.id}"
+            except Exception as e:
+                await interaction.followup.send(f"Scheduled Event create failed: {e}", ephemeral=True)
 
         if sched_url:
             embed.add_field(name="Discord Event", value=f"[Open]({sched_url})", inline=False)
 
+        # --- Create forum thread (ThreadWithMessage safe) ---
         created = await ch.create_thread(
             name=final_title,
             embed=embed,
@@ -178,23 +193,52 @@ class EventModal(discord.ui.Modal):
         thread = created.thread if hasattr(created, "thread") else created
         starter_msg = getattr(created, "message", None)
 
-        # 2) Create event in site API
-        edit_token = uuid.uuid4().hex
-        api_payload = {
-            "title": self.title_in.value,
-            "desc":  self.desc_in.value or "",
-            "start": start.isoformat(),
-            "end":   end.isoformat(),
-            "location": self.loc_in.value or "",
-            "channel_id": ch.id,
-            "thread_id":  thread.id,
-            "discord_event_id": sched.id if sched else None,
-            "creator_user_id": interaction.user.id,
-            "calendar_links": cal_links,  # from your earlier code
-            "manage_token": edit_token,
-        }
-        api_resp = await api_create_event(api_payload)
-        event_id = api_resp.get("id") if api_resp else None
+         # create calendar events
+        series_id   = uuid.uuid4().hex
+        manage_token = uuid.uuid4().hex
+
+        cal_links = []
+        sd0 = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        ed0 = end.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        for day in daterange(sd0, ed0):
+            sd = day.replace(hour=start.hour, minute=start.minute)
+            ed = day.replace(hour=end.hour,   minute=end.minute)
+            if ed <= sd:
+                ed += timedelta(days=1)
+
+            try:
+                ev = await gcal_insert_event(
+                    self.title_in.value, sd, ed,
+                    self.loc_in.value or None,
+                    self.desc_in.value or None,
+                )
+
+                cal_link = ev.get("htmlLink") if ev else None
+                cal_id   = ev.get("id")       if ev else None
+                if cal_link:
+                    cal_links.append(cal_link)
+
+                api_payload = {
+                    "title":            self.title_in.value,
+                    "desc":             self.desc_in.value or "",
+                    "start":            sd.isoformat(),            # per-day window
+                    "end":              ed.isoformat(),
+                    "location":         self.loc_in.value or "",
+                    "channel_id":       ch.id,
+                    "thread_id":        thread.id,
+                    "discord_event_id": sched.id if sched else None,
+                    "creator_user_id":  interaction.user.id,
+                    "calendar_event_id": cal_id,                   # per-day event id
+                    "calendar_link":     cal_link,                 # single link
+                    "manage_token":      manage_token,             # same token across days
+                }
+                await api_create_event(api_payload)
+
+            except Exception:
+                pass
+
+          
 
         # 3) DM the creator a manage link
         try:
