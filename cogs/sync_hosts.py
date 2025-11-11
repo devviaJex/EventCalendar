@@ -4,9 +4,9 @@ from discord import app_commands
 from discord.ext import commands
 from typing import List
 
-from shared import open_ws  # your helper that returns a gspread worksheet
+from shared import open_ws, GUILD_ID  # your helper that returns a gspread worksheet
 
-GUILD_ID = 123456789012345678          # your server
+         # your server
 HOST_ROLE_NAMES = {"Event Host"}       # match by role name (case-sensitive)
 MEMBERS_TAB = "Members"                # sheet tab to write
 

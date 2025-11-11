@@ -5,10 +5,9 @@ from discord.ext import commands
 from typing import List
 from datetime import datetime, timezone
 
-from shared import open_ws  # your helper for gspread
-
-GUILD_ID = 123456789012345678
-TAB_NAME = "MemberTable"
+from shared import open_ws, GUILD_ID, MEMBERS_TAB,ROLES_SHEET,RULES_SHEET
+    
+TAB_NAME = MEMBERS_TAB
 
 UTC = timezone.utc
 
@@ -32,7 +31,7 @@ class SyncMembers(commands.Cog):
         async for m in guild.fetch_members(limit=None):
             members.append(m)
 
-        ws = open_ws(TAB_NAME)
+        ws = open_ws(ROLES_SHEET,TAB_NAME)
         values = ws.get_all_values()
         header = values[0] if values else []
 

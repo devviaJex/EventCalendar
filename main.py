@@ -1,45 +1,53 @@
-import os
-import discord
-from discord.ext import commands, tasks
+import os, discord
+from discord.ext import commands
+from discord import app_commands
 from dotenv import load_dotenv
 
 load_dotenv()
 
+GUILD_ID  = int(os.getenv("GUILD_ID","0"))
+GUILD_OBJ = discord.Object(id=GUILD_ID)
+
 intents = discord.Intents.default()
+intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+EXTS = [
+    "cogs.events",
+    "cogs.subscriptions",
+    "cogs.reminders",
+    "cogs.yardsale_event",
+    "cogs.foodeats_event"
+]
+
+async def setup_extensions():
+    for ext in EXTS:
+        try:
+            await bot.load_extension(ext)
+            print(f"[cogs] loaded: {ext}")
+        except Exception as e:
+            print(f"[cogs] FAILED: {ext} -> {e}")
+
+@bot.event
+async def setup_hook():
+    # 1) load cogs
+    await setup_extensions()
+
+    # 2) add a trivial command directly to the guild tree
+    async def _ping(i: discord.Interaction):
+        await i.response.send_message("pong", ephemeral=True)
+    bot.tree.add_command(
+        app_commands.Command(name="pingme", description="healthcheck", callback=_ping),
+        guild=GUILD_OBJ,
+    )
+
+    # 3) sync this guild only
+    cmds = await bot.tree.sync(guild=GUILD_OBJ)
+    print("[setup_hook] Guild commands:", [c.name for c in cmds])
 
 @bot.event
 async def on_ready():
-    if not getattr(bot, "_cogs_loaded", False):
-        try:
-            await bot.load_extension("cogs.events")
-            await bot.load_extension("cogs.subscriptions")
-            await bot.load_extension("cogs.reminders")
-            await bot.load_extension("cogs.sync_members")
-            bot._cogs_loaded = True
-        except Exception as e:
-            print("Cog load error:", e)
-    try:
-        await bot.tree.sync()
-    except Exception as e:
-        print("Sync error:", e)
-    print(f"Logged in as {bot.user}")
+    g = bot.get_guild(GUILD_ID)
+    print(f"READY as {bot.user} on {g.name if g else GUILD_ID}")
 
-@bot.tree.command(description="Where is the bot running?")
-async def whereami(interaction: discord.Interaction):
-    platform = "Unknown"
-    if os.environ.get("P_SERVER_UUID") or os.environ.get("P_SERVER_ALLOCATION_ID"):
-        platform = "Pterodactyl (bot-hosting.net)"
-    elif os.environ.get("REPL_ID"):
-        platform = "Replit"
-    elif os.environ.get("RAILWAY_PROJECT_ID"):
-        platform = "Railway"
-    await interaction.response.send_message(
-        f"Running on **{platform}**.", ephemeral=True
-    )
-
-if __name__ == "__main__":
-    token = os.getenv("DISCORD_BOT_TOKEN")
-    if not token:
-        raise RuntimeError("DISCORD_BOT_TOKEN is required in environment or .env")
-    bot.run(token)
+bot.run(os.getenv("DISCORD_BOT_TOKEN"))
