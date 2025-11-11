@@ -6,22 +6,37 @@ from zoneinfo import ZoneInfo
 import re, discord
 from shared import TZ_NAME, gcal_insert_event
 import os, uuid, aiohttp
+import logging
+logger = logging.getLogger("ggw")
 
 API_BASE = os.getenv("GGW_API_BASE", "https://gibsongatorwatch.com/api").rstrip("/")
 API_KEY  = os.getenv("GGW_API_KEY")             # bearer token
 
+
 async def api_create_event(payload: dict) -> dict | None:
     if not API_BASE or not API_KEY:
-        return None
-    url = f"{API_BASE}/events"  # correct: /api + /events
+        logger.error("api_create_event missing API_BASE/API_KEY")
+        return {"ok": False, "status": None, "error": "missing credentials"}
+
+    url = f"{API_BASE.rstrip('/')}/events"
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-    async with aiohttp.ClientSession() as s:
-        async with s.post(url, json=payload, headers=headers) as r:
-            try:
-                data = await r.json()
-            except Exception:
-                return None
-            return data if r.status < 300 else None
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, json=payload, headers=headers) as r:
+                text = await r.text()
+                try:
+                    body = await r.json()
+                except Exception:
+                    body = text
+                if 200 <= r.status < 300:
+                    logger.info("api_create_event OK %s -> %s", r.status, body)
+                    return {"ok": True, "status": r.status, "body": body}
+                logger.error("api_create_event FAILED %s -> %s", r.status, text[:1000])
+                return {"ok": False, "status": r.status, "body": body}
+    except Exception as e:
+        logger.exception("api_create_event exception: %s", e)
+        return {"ok": False, "status": None, "error": str(e)}
+
 
 # ---------- dataclass ----------
 @dataclass(frozen=True)
@@ -166,20 +181,26 @@ class EventModal(discord.ui.Modal):
                 start_utc = now_utc.replace(second=0, microsecond=0) + timedelta(minutes=2)
                 if end_utc <= start_utc:
                     end_utc = start_utc + timedelta(hours=1)
+           
+        try:
+            metadata = discord.ScheduledEventEntityMetadata(location=(self.loc_in.value or "TBA")[:100])
+            sched = await guild.create_scheduled_event(
+                name=self.title_in.value[:100],
+                start_time=start_utc,
+                end_time=end_utc,
+                entity_type=discord.EntityType.external,
+                entity_metadata=metadata,
+                privacy_level=discord.PrivacyLevel.guild_only,
+                description=(self.desc_in.value or "")[:1000],
+            )
+            sched_url = f"https://discord.com/events/{guild.id}/{sched.id}"
+        except discord.Forbidden as e:
+            await interaction.followup.send("Bot permission denied creating Discord event. Check Manage Events.", ephemeral=True)
+            logger.exception("Forbidden creating scheduled event: %s", e)
+        except Exception as e:
+            await interaction.followup.send(f"Scheduled Event create failed: {e}", ephemeral=True)
+            logger.exception("Failed creating scheduled event: %s", e)
 
-            try:
-                sched = await guild.create_scheduled_event(
-                    name=self.title_in.value[:100],
-                    start_time=start_utc,
-                    end_time=end_utc,
-                    entity_type=discord.EntityType.external,
-                    location=(self.loc_in.value or "TBA")[:100],
-                    privacy_level=discord.PrivacyLevel.guild_only,
-                    description=(self.desc_in.value or "")[:1000],
-                )
-                sched_url = f"https://discord.com/events/{guild.id}/{sched.id}"
-            except Exception as e:
-                await interaction.followup.send(f"Scheduled Event create failed: {e}", ephemeral=True)
 
         if sched_url:
             embed.add_field(name="Discord Event", value=f"[Open]({sched_url})", inline=False)
@@ -193,13 +214,17 @@ class EventModal(discord.ui.Modal):
         thread = created.thread if hasattr(created, "thread") else created
         starter_msg = getattr(created, "message", None)
 
-         # create calendar events
+        # create calendar events
         series_id   = uuid.uuid4().hex
         manage_token = uuid.uuid4().hex
 
         cal_links = []
         sd0 = start.replace(hour=0, minute=0, second=0, microsecond=0)
         ed0 = end.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # capture first-successful backend id/token for DM/manage link
+        first_event_id = None
+        first_edit_token = None
 
         for day in daterange(sd0, ed0):
             sd = day.replace(hour=start.hour, minute=start.minute)
@@ -222,34 +247,43 @@ class EventModal(discord.ui.Modal):
                 api_payload = {
                     "title":            self.title_in.value,
                     "desc":             self.desc_in.value or "",
-                    "start":            sd.isoformat(),            # per-day window
+                    "start":            sd.isoformat(),
                     "end":              ed.isoformat(),
                     "location":         self.loc_in.value or "",
                     "channel_id":       ch.id,
                     "thread_id":        thread.id,
                     "discord_event_id": sched.id if sched else None,
                     "creator_user_id":  interaction.user.id,
-                    "calendar_event_id": cal_id,                   # per-day event id
-                    "calendar_link":     cal_link,                 # single link
-                    "manage_token":      manage_token,             # same token across days
+                    "calendar_event_id": cal_id,
+                    "calendar_link":     cal_link,
+                    "manage_token":      manage_token,
                 }
-                await api_create_event(api_payload)
-
-            except Exception:
-                pass
-
-          
+                # POST and inspect response
+                res = await api_create_event(api_payload)
+                if not res or not res.get("ok"):
+                    logging.getLogger("ggw").error("Backend failed to save event for %s -> %s", sd.date(), res)
+                else:
+                    body = res.get("body") if isinstance(res.get("body"), dict) else {}
+                    event_id = body.get("id") or body.get("event_id") or None
+                    edit_token = body.get("manage_token") or body.get("edit_token") or None
+                    if event_id and not first_event_id:
+                        first_event_id = event_id
+                        first_edit_token = edit_token or manage_token
+            except Exception as e:
+                logging.getLogger("ggw").exception("Error creating calendar/api event for %s: %s", sd.date(), e)
+                continue
 
         # 3) DM the creator a manage link
-        try:
-            base = API_BASE or "https://gibsongatorwatch.com"
-            manage_url = f"{base}/events/{event_id or 'pending'}?token={edit_token}"
-            msg = f"Your event is live.\nManage: {manage_url}\nThread: {thread.jump_url}"
-            if sched_url: msg += f"\nDiscord Event: {sched_url}"
-            await interaction.user.send(msg)
-        except Exception:
-            # User DMs off. Fall back to ephemeral notice.
-            await interaction.followup.send("Could not DM you. Enable DMs from server members to receive your manage link.", ephemeral=True)
+            try:
+                base = API_BASE or "https://gibsongatorwatch.com"
+                event_ref = first_event_id or "pending"
+                token_ref = first_edit_token or manage_token
+                manage_url = f"{base.rstrip('/')}/events/{event_ref}?token={token_ref}"
+                msg = f"Your event is live.\nManage: {manage_url}\nThread: {thread.jump_url}"
+                if sched_url: msg += f"\nDiscord Event: {sched_url}"
+                await interaction.user.send(msg)
+            except Exception:
+                await interaction.followup.send("Could not DM you. Enable DMs from server members to receive your manage link.", ephemeral=True)
 
-        
-        await interaction.followup.send("Event posted.", ephemeral=True)
+
+            await interaction.followup.send("Event posted.", ephemeral=True)
